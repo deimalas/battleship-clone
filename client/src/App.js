@@ -1,23 +1,30 @@
-import logo from './logo.svg';
-import './App.css';
+import React, {useEffect, useState} from 'react';
+import io from 'socket.io-client';
 
-function App() {
+const socket = io('http://localhost:5000');
+
+function App(){
+  const [messages, setMessages] = useState([]);
+
+  useEffect(() => {
+    socket.on('attack-result', (data) => {
+      setMessages((prev) => [...prev, data]);
+    });
+  }, []);
+    // literally just sends the message for now, very preliminary
+  const handleAttack = () => {
+    socket.emit('attack', { message: 'Player is attacking' });
+  };
+  // sparse html page just to see that network connectivity works
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div>
+      <h1>Battleship Clone</h1>
+      <button onClick={handleAttack}>Attack</button>
+      <ul>
+        {messages.map((msg, index) => (
+          <li key={index}>{msg.message}</li>
+        ))}
+      </ul>
     </div>
   );
 }
