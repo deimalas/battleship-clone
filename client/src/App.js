@@ -12,7 +12,13 @@ function App(){
   // for now using socket.on and socket.off to turn off listeners and go about the double send. probably as clean as it gets??? idk how else
   // basically a filler method before making it actually functional
 
-  const handleAttack = () => {
+  const fetchGrid = () => {
+    fetch('http://localhost:5000/grid')
+        .then(res => res.json())
+        .then(data => setGrid(data.grid));
+  };
+
+    const handleAttack = () => {
     if (!selectedCell) return;
 
     fetch('http://localhost:5000/attack', {
@@ -26,7 +32,7 @@ function App(){
             setMessages((prev) => [...prev, data.message]);
         } else {
             setMessages((prev) => [...prev, data.result]);
-            if (data.result === 'miss') setShotsLeft(data.shotsLeft);
+            if (data.result === 'Miss') setShotsLeft(data.shotsLeft);
         }
 
         fetch('http://localhost:5000/grid')
@@ -36,12 +42,25 @@ function App(){
     .catch(error => console.error("Error parsing JSON:", error));
     };
 
+    useEffect(() => {
+      fetchGrid();
+    }, []);
 
-  useEffect(() => {
-    fetch('http://localhost:5000/grid')
+    useEffect(() => {
+      fetch('http://localhost:5000/grid')
         .then(res => res.json())
         .then(data => setGrid(data.grid));
-  }, []);
+    }, []);
+
+    const handleReset = () => {
+      fetch('http://localhost:5000/reset', { method: 'POST' })
+          .then(res => res.json())
+          .then(data => {
+              setMessages([data.message]);
+              setShotsLeft(25);
+              fetchGrid();
+          });
+      };
 
   // sparse html page just to see that network connectivity works
   // added the grid display, also onclick, game logic be there wahoo
@@ -60,15 +79,17 @@ function App(){
                             width: 20, height: 20, border: '1px solid black',
                             backgroundColor:
                                 selectedCell?.x === x && selectedCell?.y === y ? 'red' :
+                                cell === -10 ? 'blue' : // miss
                                 cell < 0 ? 'darkred' : // hit ship
                                 cell > 0 ? 'gray' : // ship (for testing)
-                                'blue' // watuh
+                                'white' // watuh
                         }}
                     ></div>
                 ))
             )}
         </div>
         <button onClick={handleAttack}>Attack</button>
+        <button onClick={handleReset} style={{ marginLeft: '10px' }}>Reset Board</button>
         <ul>
             {messages.map((msg, index) => (
                 <li key={index}>{msg}</li>
