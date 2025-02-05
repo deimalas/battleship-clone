@@ -49,6 +49,38 @@ app.get('/grid', (req, res) => {
     res.json({ grid: gameGrid });
 });
 
+let shotsLeft = 25;
+
+// shots are counted and hits are hits, however no win condition yet and also double shots are possible. to be refined
+const checkShot = (x, y) => {
+    const hitValue = gameGrid[y][x];
+
+    if (hitValue < 0) 
+    return { result: 'already-shot' }; // using the fact it's simple coordinates
+
+    if (hitValue > 0) {
+        gameGrid[y][x] = -hitValue; // if it's hit, invert the value, since grid is coded by ship lengths
+
+        const isSunk = !gameGrid.some(row => row.includes(hitValue));
+
+        return { result: isSunk ? 'hit' : 'sunk', ship: hitValue };
+    } else {
+        shotsLeft--;
+        return { result: 'miss' };
+    }
+};
+
+app.post('/attack', (req, res) => {
+    if (shotsLeft <= 0) 
+    return res.json({ message: 'No shots left', shotsLeft });
+
+    const { x, y } = req.body;
+    const attackResult = checkShot(x, y);
+
+    res.json({ ...attackResult, shotsLeft });
+});
+
+
 app.get('/', (req, res) => {
     res.send('Battleship server is up');
 });
