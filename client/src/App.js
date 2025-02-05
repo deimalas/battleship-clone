@@ -9,57 +9,30 @@ function App(){
   const [shotsLeft, setShotsLeft] = useState(25);
   const [selectedCell, setSelectedCell] = useState(null);
 
-  // for now using socket.on and socket.off to turn off listeners and go about the double send. probably as clean as it gets??? idk how else
-  // basically a filler method before making it actually functional
+  useEffect(() => {
+    socket.on('game-state', (data) => {
+      setGrid(data.grid);
+      setShotsLeft(data.shotsLeft);
+    });
+    socket.on('attack-result', (data) => {
+      setMessages((prev) => [...prev, data.result]);
+      if (data.result === 'Miss' || data.result === 'Hit') 
+      setShotsLeft(data.shotsLeft);
+      if (data.victory) 
+      setMessages((prev) => [...prev, 'Victory, all ships sunk']);
+    });
 
-  const fetchGrid = () => {
-    fetch('http://localhost:5000/grid')
-        .then(res => res.json())
-        .then(data => setGrid(data.grid));
-  };
+      return () => socket.off('game-state').off('attack-result');
+    }, []);
 
     const handleAttack = () => {
-    if (!selectedCell) return;
-
-    fetch('http://localhost:5000/attack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selectedCell)
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.message) {
-            setMessages((prev) => [...prev, data.message]);
-        } else {
-            setMessages((prev) => [...prev, data.result]);
-            if (data.result === 'Miss') setShotsLeft(data.shotsLeft);
-        }
-
-        fetch('http://localhost:5000/grid')
-            .then(res => res.json())
-            .then(data => setGrid(data.grid));
-    })
-    .catch(error => console.error("Error parsing JSON:", error));
-    };
-
-    useEffect(() => {
-      fetchGrid();
-    }, []);
-
-    useEffect(() => {
-      fetch('http://localhost:5000/grid')
-        .then(res => res.json())
-        .then(data => setGrid(data.grid));
-    }, []);
+      if (!selectedCell) return;
+      socket.emit('attack', selectedCell);
+    }
 
     const handleReset = () => {
-      fetch('http://localhost:5000/reset', { method: 'POST' })
-          .then(res => res.json())
-          .then(data => {
-              setMessages([data.message]);
-              setShotsLeft(25);
-              fetchGrid();
-          });
+      socket.emit('reset-game');
+      setMessages([]);
       };
 
   // sparse html page just to see that network connectivity works

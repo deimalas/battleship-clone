@@ -16,99 +16,155 @@ const io = new Server(server, {
     }
 });
 
+const activeGames = {};
+
 // basic connectivity and attack logic handling, might have to change this later
 // yup definitely will, for some reason one user gets logged in as two. idk how i caused this oops
 io.on('connection', (socket) => {
 
     console.log('New player:', socket.id);
 
-    socket.on('attack', (data) => {
-        io.emit('attack-result', data);
+    activeGames[socket.id] = {
+        grid: generateGrid(),
+        shotsLeft: 25,
+        hits: new Set()
+    };
+
+    socket.emit('game-state', {
+        grid: activeGames[socket.id].grid,
+        shotsLeft: activeGames[socket.id].shotsLeft
+    });
+
+    socket.on('attack', ({ x, y }) => {
+        const game = activeGames[socket.id];
+        if (!game) return;
+
+        if (game.hits.has(`${x},${y}`)) {
+            socket.emit('attack-result', { result: 'Already shot' });
+            return;
+        }
+
+        game.hits.add(`${x},${y}`);
+        let hitValue = game.grid[y][x];
+
+        let response;
+        if (hitValue > 0) {
+            const isSunk = !game.grid.some(row => row.includes(hitValue));
+            response = { result: isSunk ? 'All ships of this type sunk' : 'Hit', ship: hitValue };
+            game.grid[y][x] = -hitValue;
+        } else {
+            game.grid[y][x] = -10; 
+            game.shotsLeft--;
+            response = { result: 'Miss', shotsLeft: game.shotsLeft };
+        }
+
+        if (game.grid.flat().every(cell => cell <= 0)) {
+            response.victory = true;
+        }
+
+        socket.emit('attack-result', response);
+
+        socket.emit('game-state', {
+            grid: activeGames[socket.id].grid,
+            shotsLeft: activeGames[socket.id].shotsLeft
+        });
+    });
+
+    socket.on('reset-game', () => {
+        activeGames[socket.id] = {
+            grid: generateGrid(),
+            shotsLeft: 25,
+            hits: new Set()
+        };
+
+        socket.emit('game-state', {
+            grid: activeGames[socket.id].grid,
+            shotsLeft: activeGames[socket.id].shotsLeft
+        });
     });
 
     socket.on('disconnect', () => {
-        console.log('Player disconnected');
+        console.log(`Player ${socket.id} disconnected`);
+        delete activeGames[socket.id];
     });
 });
 
-// copy for game reset (need to make a regenerate method)
-const originalGrid = JSON.parse(JSON.stringify([ // Deep copy for reset
-    [0, 0, 0, 0, 5, 5, 5, 5, 5, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 4, 4, 4, 4, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [3, 3, 3, 0, 0, 2, 2, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-    [2, 2, 0, 0, 0, 0, 1, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-]));
-
 //fixed array that i'm using before i make actual generation code. basically just to see if grid display works the way i envision it
-let gameGrid = [
-    [0, 0, 0, 0, 5, 5, 5, 5, 5, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 4, 4, 4, 4, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [3, 3, 3, 0, 0, 2, 2, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-    [2, 2, 0, 0, 0, 0, 1, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-];
-
+let gameGrid = [];
 let shotsLeft = 25;
+
+const ship_sizes = [5, 4, 3, 3, 2, 2, 2, 1, 1, 1]
+
+const generateGrid = () => {
+    let grid = Array(10).fill(null).map(() => Array(10).fill(0)); //creates an empty array
+
+    const isValidPlacement = (startX, startY, shipSize, isHorizontal) => {
+        for (let i = 0; i < shipSize; i++) {
+            let currentX = isHorizontal ? startX + i : startX;
+            let currentY = isHorizontal ? startY : startY + i;
+            // making sure it's on the grid
+            if (currentX >= 10 || currentY >= 10 || grid[currentY][currentX] !== 0) {
+                return false;
+            }
+            // at least 1 square difference (ideally)
+            for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+                for (let colOffset = -1; colOffset <= 1; colOffset++) {
+                    let neighborX = currentX + colOffset;
+                    let neighborY = currentY + rowOffset;
+
+                    if (
+                        neighborX >= 0 && neighborX < 10 &&
+                        neighborY >= 0 && neighborY < 10 &&
+                        grid[neighborY][neighborX] !== 0
+                    ) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    };
+
+    const placeShip = (shipSize) => {
+        let placedSuccessfully = false;
+
+        while (!placedSuccessfully) {
+            let randomX = Math.floor(Math.random() * 10);
+            let randomY = Math.floor(Math.random() * 10);
+            let isHorizontal = Math.random() > 0.5; // 50/50 for horizontal or vertical placement
+
+            if (isValidPlacement(randomX, randomY, shipSize, isHorizontal)) {
+                for (let i = 0; i < shipSize; i++) {
+                    let shipX = isHorizontal ? randomX + i : randomX;
+                    let shipY = isHorizontal ? randomY : randomY + i;
+                    grid[shipY][shipX] = shipSize;
+                }
+                placedSuccessfully = true;
+            }
+        }
+    };
+
+    ship_sizes.forEach(placeShip);
+    return grid;
+};
+
+
+const resetGame = () => {
+    shotsLeft = 25;
+    gameGrid = generateGrid();
+};
+
+resetGame();
 
 app.get('/grid', (req, res) => {
     res.json({ grid: gameGrid });
 });
 
 app.post('/reset', (req, res) => {
-    gameGrid = JSON.parse(JSON.stringify(originalGrid));
+    resetGame();
     shotsLeft = 25;
     res.json({ message: 'Game reset' });
 });
-
-// shots are counted and hits are hits, however no win condition yet and also double shots are possible. to be refined
-const checkShot = (x, y) => {
-    const hitValue = gameGrid[y][x];
-    const isSunk = false;
-
-    if (hitValue < 0) 
-    return { result: 'Already shot, pick another spot' }; // using the fact it's simple coordinates
-
-    if (hitValue > 0) {
-        gameGrid[y][x] = -hitValue; // if it's hit, invert the value, since grid is coded by ship lengths
-        
-        if (hitValue >= 3)
-        isSunk = !gameGrid.some(row => row.includes(hitValue));
-        
-        if (hitValue = 1)
-        isSunk = true;
-
-        const allShipsSunk = !gameGrid.flat().some(cell => cell > 0);
-        if (allShipsSunk) return { result: 'Victory' }
-
-        return { result: isSunk ? 'Sunk' : 'Hit', ship: hitValue };
-    } else {
-        gameGrid[y][x] = -10;
-        shotsLeft--;
-        return { result: 'Miss' };
-    }
-};
-
-app.post('/attack', (req, res) => {
-    if (shotsLeft <= 0) 
-    return res.json({ message: 'No shots left', shotsLeft });
-
-    const { x, y } = req.body;
-    const attackResult = checkShot(x, y);
-
-    res.json({ ...attackResult, shotsLeft });
-});
-
 
 app.get('/', (req, res) => {
     res.send('Battleship server is up');
