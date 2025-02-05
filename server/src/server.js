@@ -18,52 +18,56 @@ const io = new Server(server, {
 
 const activeGames = {};
 
-// basic connectivity and attack logic handling, might have to change this later
-// yup definitely will, for some reason one user gets logged in as two. idk how i caused this oops
+// socket.io used for handling the event logic, to allow for multiple users at once to play
 io.on('connection', (socket) => {
 
     console.log('New player:', socket.id);
 
+    // creates a new game for new user based on socket.id, keeps its state
+    // the hits set wasn't strictly necessary, other workarounds exist, however this was the easiest to avoid double hits
     activeGames[socket.id] = {
         grid: generateGrid(),
         shotsLeft: 25,
         hits: new Set()
     };
 
+    // game state update, initial load
     socket.emit('game-state', {
         grid: activeGames[socket.id].grid,
         shotsLeft: activeGames[socket.id].shotsLeft
     });
 
+    // attack handling
     socket.on('attack', ({ x, y }) => {
         const game = activeGames[socket.id];
-        if (!game) return;
+        if (!game)  // if game doesn't exist, quits, very edge case
+            return;
 
         if (game.hits.has(`${x},${y}`)) {
             socket.emit('attack-result', { result: 'Already shot' });
-            return;
+            return; // checking if coordinate has already been shot at
         }
-
+        // adds shot coordinate to set, also takes the hitvalue for hitcheck
         game.hits.add(`${x},${y}`);
         let hitValue = game.grid[y][x];
 
         let response;
         if (hitValue > 0) {
-            const isSunk = !game.grid.some(row => row.includes(hitValue));
+            const isSunk = !game.grid.some(row => row.includes(hitValue)); // if game grid doesn't have this value anymore, it will count the ship as sunk
             response = { result: isSunk ? 'All ships of this type sunk' : 'Hit', ship: hitValue };
-            game.grid[y][x] = -hitValue;
+            game.grid[y][x] = -hitValue; // inverting the value for tracking of hit and sunk ships
         } else {
-            game.grid[y][x] = -10; 
-            game.shotsLeft--;
+            game.grid[y][x] = -10; // if water is hit, value set to -10
+            game.shotsLeft--; // shot--
             response = { result: 'Miss', shotsLeft: game.shotsLeft };
         }
 
         if (game.grid.flat().every(cell => cell <= 0)) {
-            response.victory = true;
+            response.victory = true; // if every cell is 0 or less, game is won
         }
 
         socket.emit('attack-result', response);
-
+        // updating the game state again at end of attack
         socket.emit('game-state', {
             grid: activeGames[socket.id].grid,
             shotsLeft: activeGames[socket.id].shotsLeft
@@ -82,21 +86,26 @@ io.on('connection', (socket) => {
             shotsLeft: activeGames[socket.id].shotsLeft
         });
     });
-
+    // upon disconnect player is removed
     socket.on('disconnect', () => {
         console.log(`Player ${socket.id} disconnected`);
         delete activeGames[socket.id];
     });
 });
 
-//fixed array that i'm using before i make actual generation code. basically just to see if grid display works the way i envision it
+
 let gameGrid = [];
 let shotsLeft = 25;
 
-const ship_sizes = [5, 4, 3, 3, 2, 2, 2, 1, 1, 1]
+const ship_sizes = [5, 4, 3, 3, 2, 2, 2, 1, 1, 1] // this is scalable if for some reason that is desired
 
+// method for generating a brand new grid every time reset is hit, from testing it has been correct
+// works assuming it's a 10x10 array, fills it with empty (0)
+// then working from there it checks if the placement is correct via offsets
+// finally the placeship method tries until it finds a correct ship placement
+// the grid is coded by size of ship, so a 5 blocks large ship is 5 5 5 5 5, 2 blocks large is 2 2, etc.
 const generateGrid = () => {
-    let grid = Array(10).fill(null).map(() => Array(10).fill(0)); //creates an empty array
+    let grid = Array(10).fill(null).map(() => Array(10).fill(0)); // creates an empty array
 
     const isValidPlacement = (startX, startY, shipSize, isHorizontal) => {
         for (let i = 0; i < shipSize; i++) {
